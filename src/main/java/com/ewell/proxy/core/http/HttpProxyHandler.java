@@ -14,6 +14,7 @@ import io.netty.util.concurrent.FutureListener;
 import io.netty.util.concurrent.Promise;
 import lombok.extern.slf4j.Slf4j;
 
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -71,7 +72,7 @@ public class HttpProxyHandler extends SimpleChannelInboundHandler<HttpObject> {
                     String basicAuth = request.headers().get("Proxy-Authorization");
                     if (!auth.equals(basicAuth)) {
                         contents.forEach(ReferenceCounted::release);
-                        log.info("账号或密码错误:{}", basicAuth);
+                        log.info("认证异常,对方ip:{},令牌:{}", ((InetSocketAddress) ctx.channel().remoteAddress()).getAddress().getHostAddress(), basicAuth);
                         DefaultHttpResponse resp = new DefaultHttpResponse(request.protocolVersion(), PROXY_AUTHENTICATION_REQUIRED);
                         resp.headers().add("Proxy-Authenticate", "Basic realm=\"awesomeproxy\"");
                         Channel inbound = ctx.channel();
@@ -87,6 +88,12 @@ public class HttpProxyHandler extends SimpleChannelInboundHandler<HttpObject> {
         }
     }
 
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        ctx.channel().close();
+        log.error("HttpProxyHandler:", cause);
+    }
+
     protected void handleProxy(ChannelHandlerContext ctx) {
         Channel inbound = ctx.channel();
         Promise<Channel> promise = ctx.executor().newPromise();
@@ -97,6 +104,7 @@ public class HttpProxyHandler extends SimpleChannelInboundHandler<HttpObject> {
                 Channel outbound = future.getNow();
                 inbound.pipeline().addLast(new HttpResponseEncoder());
                 //重要
+                outbound.config().setAutoRead(false);
                 inbound.config().setAutoRead(false);
                 inbound.writeAndFlush(new DefaultHttpResponse(request.protocolVersion(), new HttpResponseStatus(200, "Connection Established"))).addListener(res -> {
                     if (res.isSuccess()) {
@@ -107,7 +115,6 @@ public class HttpProxyHandler extends SimpleChannelInboundHandler<HttpObject> {
                         }
                         //流量透传
                         passThrough.accept(inbound, outbound);
-                        inbound.config().setAutoRead(true);
                     }
                 });
             });

@@ -79,10 +79,10 @@ public class OSHelper {
     }
 
     public static PassThroughStrategy nativePassThrough() {
-        if (OS.isLinux()) {
+        /*if (OS.isLinux()) {
             log.info("使用Splice透传策略");
             return new SpliceImpl();
-        }
+        }*/
         log.info("使用默认透传策略");
         return new DefaultImpl();
     }
@@ -94,6 +94,8 @@ public class OSHelper {
         public void accept(Channel channel1, Channel channel2) {
             channel1.pipeline().addLast(new ForwardHandler(channel2));
             channel2.pipeline().addLast(new ForwardHandler(channel1));
+            channel1.config().setAutoRead(true);
+            channel2.config().setAutoRead(true);
         }
     }
 

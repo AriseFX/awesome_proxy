@@ -5,7 +5,6 @@
 1. 支持http/https代理
 2. 支持socks5代理
 3. 混合端口
-4. linux下支持splice零拷贝特性
 
 ### 快速开始
 
