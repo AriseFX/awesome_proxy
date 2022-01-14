@@ -15,6 +15,8 @@ import io.netty.handler.codec.socksx.v5.Socks5InitialRequestDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthRequestDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5ServerEncoder;
 
+import java.net.InetSocketAddress;
+
 
 /**
  * @author wy
@@ -28,6 +30,13 @@ public class ProtocolDiscernHandler extends SimpleChannelInboundHandler<ByteBuf>
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
+        String hostString = ((InetSocketAddress) ctx.channel().remoteAddress()).getAddress().getHostAddress();
+        if (Blacklist.inBlacklist(hostString)) {
+            if (ctx.channel().isActive()) {
+                ctx.channel().close();
+            }
+            return;
+        }
         byte head = msg.getByte(0);
         ChannelPipeline p = ctx.pipeline();
         p.remove(this);

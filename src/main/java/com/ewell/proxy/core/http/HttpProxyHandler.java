@@ -4,6 +4,7 @@ import com.ewell.proxy.Main;
 import com.ewell.proxy.common.NettyBootstrapFactory;
 import com.ewell.proxy.common.os.OSHelper;
 import com.ewell.proxy.common.os.PassThroughStrategy;
+import com.ewell.proxy.core.Blacklist;
 import com.ewell.proxy.core.ForwardHandler;
 import com.ewell.proxy.core.RemoteChannelActiveHandler;
 import io.netty.bootstrap.Bootstrap;
@@ -72,12 +73,14 @@ public class HttpProxyHandler extends SimpleChannelInboundHandler<HttpObject> {
                     String basicAuth = request.headers().get("Proxy-Authorization");
                     if (!auth.equals(basicAuth)) {
                         contents.forEach(ReferenceCounted::release);
-                        log.info("认证异常,对方ip:{},令牌:{}", ((InetSocketAddress) ctx.channel().remoteAddress()).getAddress().getHostAddress(), basicAuth);
+                        String hostAddress = ((InetSocketAddress) ctx.channel().remoteAddress()).getHostString();
+                        Blacklist.addIp(hostAddress);
+                        log.info("认证异常,对方ip:{}", hostAddress);
                         DefaultHttpResponse resp = new DefaultHttpResponse(request.protocolVersion(), PROXY_AUTHENTICATION_REQUIRED);
                         resp.headers().add("Proxy-Authenticate", "Basic realm=\"awesomeproxy\"");
                         Channel inbound = ctx.channel();
                         inbound.pipeline().addLast(new HttpResponseEncoder());
-                        ctx.channel().writeAndFlush(resp).addListener(e -> {
+                        inbound.writeAndFlush(resp).addListener(e -> {
                             inbound.close();
                         });
                         return;
@@ -90,7 +93,10 @@ public class HttpProxyHandler extends SimpleChannelInboundHandler<HttpObject> {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        ctx.channel().close();
+        Channel channel = ctx.channel();
+        if (channel.isActive()) {
+            channel.close();
+        }
         log.error("HttpProxyHandler:", cause);
     }
 
