@@ -5,8 +5,8 @@ import com.ewell.proxy.common.NettyBootstrapFactory;
 import com.ewell.proxy.common.os.OSHelper;
 import com.ewell.proxy.common.os.PassThroughStrategy;
 import com.ewell.proxy.core.Blacklist;
+import com.ewell.proxy.core.ExceptionHandler;
 import com.ewell.proxy.core.ForwardHandler;
-import com.ewell.proxy.core.RemoteChannelActiveHandler;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
 import io.netty.handler.codec.http.*;
@@ -19,6 +19,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Objects;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.PROXY_AUTHENTICATION_REQUIRED;
 
@@ -51,6 +52,10 @@ public class HttpProxyHandler extends SimpleChannelInboundHandler<HttpObject> {
     protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) {
         if (msg instanceof HttpRequest) {
             request = (HttpRequest) msg;
+            if (!request.decoderResult().isSuccess()) {
+                ctx.channel().close();
+                return;
+            }
             String hostAndPortStr = HttpMethod.CONNECT.equals(request.method()) ? request.uri() : request.headers().get("Host");
             if (hostAndPortStr != null) {
                 String[] hostPortArray = hostAndPortStr.split(":");
@@ -93,11 +98,12 @@ public class HttpProxyHandler extends SimpleChannelInboundHandler<HttpObject> {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        log.error("HttpProxyHandler发生异常:", cause);
         Channel channel = ctx.channel();
         if (channel.isActive()) {
+            channel.flush();
             channel.close();
         }
-        log.error("HttpProxyHandler:", cause);
     }
 
     protected void handleProxy(ChannelHandlerContext ctx) {
@@ -106,41 +112,93 @@ public class HttpProxyHandler extends SimpleChannelInboundHandler<HttpObject> {
         //处理https代理
         if (request.method().equals(HttpMethod.CONNECT)) {
             promise.addListener((FutureListener<Channel>) future -> {
-                //连接远程服务器成功
-                Channel outbound = future.getNow();
-                inbound.pipeline().addLast(new HttpResponseEncoder());
-                //重要
-                outbound.config().setAutoRead(false);
-                inbound.config().setAutoRead(false);
-                inbound.writeAndFlush(new DefaultHttpResponse(request.protocolVersion(), new HttpResponseStatus(200, "Connection Established"))).addListener(res -> {
-                    if (res.isSuccess()) {
-                        //去掉所有handler(后续走tunnel)
-                        ChannelPipeline pipeline = ctx.pipeline();
-                        while (pipeline.last() != null) {
-                            pipeline.removeLast();
+                if (future.isSuccess()) {
+                    //连接远程服务器成功
+                    Channel outbound = future.getNow();
+                    inbound.pipeline().addLast(new HttpResponseEncoder());
+                    //重要
+                    outbound.config().setAutoRead(false);
+                    inbound.config().setAutoRead(false);
+                    inbound.writeAndFlush(new DefaultHttpResponse(request.protocolVersion(), new HttpResponseStatus(200, "Connection Established"))).addListener(res -> {
+                        if (res.isSuccess()) {
+                            //去掉所有handler(后续走tunnel)
+                            ChannelPipeline pipeline = ctx.pipeline();
+                            while (pipeline.last() != null) {
+                                pipeline.removeLast();
+                            }
+                            //流量透传
+                            passThrough.accept(inbound, outbound);
                         }
-                        //流量透传
-                        passThrough.accept(inbound, outbound);
+                    });
+                } else {
+                    contents.forEach(ReferenceCounted::release);
+                    if (inbound.isActive()) {
+                        inbound.flush();
+                        inbound.close();
                     }
-                });
+                }
             });
         } else {
             promise.addListener((FutureListener<Channel>) future -> {
-                if (promise.isSuccess()) {
+                if (future.isSuccess()) {
                     Channel outbound = future.getNow();
                     ctx.pipeline().remove(this);
-                    ctx.pipeline().addLast(new ModHttpRequestHandler());
                     ctx.pipeline().addLast(new ForwardHandler(outbound));
                     //转发请求
                     outbound.pipeline().addLast(new HttpRequestEncoder());
                     outbound.pipeline().addLast(new ForwardHandler(inbound));
+                    modRequest(request);
                     outbound.writeAndFlush(request);
                     contents.forEach(outbound::writeAndFlush);
+                } else {
+                    contents.forEach(ReferenceCounted::release);
+                    if (inbound.isActive()) {
+                        inbound.flush();
+                        inbound.close();
+                    }
                 }
             });
         }
         if (b.config().group() == null) {
-            b.group(inbound.eventLoop()).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000).option(ChannelOption.SO_KEEPALIVE, true).handler(new RemoteChannelActiveHandler(promise)).connect(host, port);
+            b.group(inbound.eventLoop())
+                    .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
+                    .option(ChannelOption.SO_KEEPALIVE, true)
+                    .handler(ExceptionHandler.INSTANCE)
+                    .connect(host, port).addListener((ChannelFutureListener) future -> {
+                        if (future.isSuccess()) {
+                            Channel channel = future.channel();
+                            promise.trySuccess(channel);
+                        } else {
+                            promise.tryFailure(future.cause());
+                        }
+                    });
+        }
+    }
+
+    private void modRequest(HttpRequest request) {
+        request.headers().remove("Proxy-Authorization");
+        String proxyConnection = request.headers().get("Proxy-Connection");
+        if (Objects.nonNull(proxyConnection)) {
+            request.headers().set("Connection", proxyConnection);
+            request.headers().remove("Proxy-Connection");
+        }
+        //获取Host和port
+        String hostAndPortStr = request.headers().get("Host");
+        String[] hostPortArray = hostAndPortStr.split(":");
+        String host = hostPortArray[0];
+        String portStr = hostPortArray.length == 2 ? hostPortArray[1] : "80";
+        int port = Integer.parseInt(portStr);
+
+        try {
+            String url = request.uri();
+            int index = url.indexOf(host) + host.length();
+            url = url.substring(index);
+            if (url.startsWith(":")) {
+                url = url.substring(1 + String.valueOf(port).length());
+            }
+            request.setUri(url);
+        } catch (Exception e) {
+            log.error("无法获取url:{} {}", request.uri(), host);
         }
     }
 }

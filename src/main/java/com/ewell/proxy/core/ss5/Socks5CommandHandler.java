@@ -3,7 +3,7 @@ package com.ewell.proxy.core.ss5;
 import com.ewell.proxy.common.NettyBootstrapFactory;
 import com.ewell.proxy.common.os.OSHelper;
 import com.ewell.proxy.common.os.PassThroughStrategy;
-import com.ewell.proxy.core.RemoteChannelActiveHandler;
+import com.ewell.proxy.core.ExceptionHandler;
 import io.netty.channel.*;
 import io.netty.handler.codec.socksx.v5.*;
 import io.netty.util.concurrent.FutureListener;
@@ -22,33 +22,44 @@ public class Socks5CommandHandler extends SimpleChannelInboundHandler<DefaultSoc
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, DefaultSocks5CommandRequest msg) {
-        Channel inboundChannel = ctx.channel();
+        Channel inbound = ctx.channel();
         if (msg.type().equals(Socks5CommandType.CONNECT)) {
             //普通tcp模式
-            Promise<Channel> promise = inboundChannel.eventLoop().newPromise();
+            Promise<Channel> promise = inbound.eventLoop().newPromise();
             promise.addListener(((FutureListener<Channel>) future -> {
                 if (future.isSuccess()) {
                     //重要
-                    inboundChannel.config().setAutoRead(false);
+                    inbound.config().setAutoRead(false);
                     Channel remoteChannel = future.get();
                     Socks5CommandResponse commandResponse = new DefaultSocks5CommandResponse(Socks5CommandStatus.SUCCESS, Socks5AddressType.IPv4);
-                    inboundChannel.writeAndFlush(commandResponse);
+                    inbound.writeAndFlush(commandResponse);
                     //去掉所有handler(后续走tunnel)
                     ChannelPipeline pipeline = ctx.pipeline();
                     while (pipeline.last() != null) {
                         pipeline.removeLast();
                     }
                     //流量透传
-                    passThrough.accept(inboundChannel,remoteChannel);
-                    inboundChannel.config().setAutoRead(true);
+                    passThrough.accept(inbound, remoteChannel);
+                    inbound.config().setAutoRead(true);
+                } else {
+                    if (inbound.isActive()) {
+                        inbound.flush();
+                        inbound.close();
+                    }
                 }
             }));
             NettyBootstrapFactory.newBootstrap()
                     .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)
                     .option(ChannelOption.SO_KEEPALIVE, true)
-                    .handler(new RemoteChannelActiveHandler(promise))
-                    .group(ctx.channel().eventLoop())
-                    .connect(msg.dstAddr(), msg.dstPort());
+                    .handler(ExceptionHandler.INSTANCE)
+                    .connect(msg.dstAddr(), msg.dstPort()).addListener((ChannelFutureListener) future -> {
+                        if (future.isSuccess()) {
+                            Channel channel = future.channel();
+                            promise.trySuccess(channel);
+                        } else {
+                            promise.tryFailure(future.cause());
+                        }
+                    });
         } else {
             ctx.fireChannelRead(msg);
         }

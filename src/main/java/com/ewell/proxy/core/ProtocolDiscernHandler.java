@@ -59,4 +59,11 @@ public class ProtocolDiscernHandler extends SimpleChannelInboundHandler<ByteBuf>
         }
         p.fireChannelRead(msg);
     }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        if (ctx.channel().isActive()) {
+            ctx.channel().close();
+        }
+    }
 }

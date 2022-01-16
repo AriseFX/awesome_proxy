@@ -36,6 +36,8 @@ public class Socks5HandshakeHandler extends SimpleChannelInboundHandler<DefaultS
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        super.exceptionCaught(ctx, cause);
+        if (ctx.channel().isActive()) {
+            ctx.channel().close();
+        }
     }
 }
