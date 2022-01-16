@@ -27,7 +27,7 @@ public class Main {
         if (username != null && password != null) {
             auth = new String[]{username, password};
         } else {
-            auth = new String[]{"admin", "XCwjj@xcewell123"};
+            auth = new String[]{"admin", "123456"};
         }
         if (port == null) {
             port = "8080";
