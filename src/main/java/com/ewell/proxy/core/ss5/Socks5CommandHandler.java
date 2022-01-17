@@ -49,6 +49,7 @@ public class Socks5CommandHandler extends SimpleChannelInboundHandler<DefaultSoc
                 }
             }));
             NettyBootstrapFactory.newBootstrap()
+                    .group(ctx.channel().eventLoop())
                     .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)
                     .option(ChannelOption.SO_KEEPALIVE, true)
                     .handler(ExceptionHandler.INSTANCE)
