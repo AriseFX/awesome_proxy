@@ -1,7 +1,6 @@
 package com.ewell.proxy.core;
 
 import io.netty.channel.ChannelHandler;
-import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -15,12 +14,4 @@ import lombok.extern.slf4j.Slf4j;
 public class ExceptionHandler extends ChannelInboundHandlerAdapter {
 
     public static ExceptionHandler INSTANCE = new ExceptionHandler();
-
-    @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        if (ctx.channel().isActive()) {
-            ctx.channel().close();
-        }
-        log.error("ExceptionHandler:", cause);
-    }
 }

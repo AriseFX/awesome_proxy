@@ -99,6 +99,7 @@ public class HttpProxyHandler extends SimpleChannelInboundHandler<HttpObject> {
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         log.error("HttpProxyHandler发生异常:", cause);
+        contents.forEach(ReferenceCounted::release);
         Channel channel = ctx.channel();
         if (channel.isActive()) {
             channel.flush();
