@@ -22,12 +22,16 @@ public class Main {
 
     public static void main(String[] args) throws InterruptedException {
         String port = System.getProperty("proxy.port");
+        String nouser = System.getProperty("proxy.nouser");
         String username = System.getProperty("proxy.username");
         String password = System.getProperty("proxy.password");
         if (username != null && password != null) {
             auth = new String[]{username, password};
         } else {
             auth = new String[]{"admin", "123456"};
+        }
+        if (nouser != null) {
+            auth = null;
         }
         if (port == null) {
             port = "8080";
