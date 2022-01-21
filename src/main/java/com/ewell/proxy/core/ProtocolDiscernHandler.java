@@ -35,6 +35,7 @@ public class ProtocolDiscernHandler extends SimpleChannelInboundHandler<ByteBuf>
             if (ctx.channel().isActive()) {
                 ctx.channel().close();
             }
+            msg.release();
             return;
         }
         byte head = msg.getByte(0);
