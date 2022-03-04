@@ -40,7 +40,6 @@ public class Socks5CommandHandler extends SimpleChannelInboundHandler<DefaultSoc
                     }
                     //流量透传
                     passThrough.accept(inbound, remoteChannel);
-                    inbound.config().setAutoRead(true);
                 } else {
                     if (inbound.isActive()) {
                         inbound.flush();

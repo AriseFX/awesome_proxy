@@ -122,8 +122,8 @@ public class HttpProxyHandler extends SimpleChannelInboundHandler<HttpObject> {
                     inbound.config().setAutoRead(false);
                     inbound.writeAndFlush(new DefaultHttpResponse(request.protocolVersion(), new HttpResponseStatus(200, "Connection Established"))).addListener(res -> {
                         if (res.isSuccess()) {
-                            //去掉所有handler(后续走tunnel)
-                            ChannelPipeline pipeline = ctx.pipeline();
+                            //去掉所有handler
+                            ChannelPipeline pipeline = inbound.pipeline();
                             while (pipeline.last() != null) {
                                 pipeline.removeLast();
                             }

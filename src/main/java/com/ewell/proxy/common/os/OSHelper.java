@@ -1,9 +1,8 @@
 package com.ewell.proxy.common.os;
 
 import com.ewell.proxy.core.ForwardHandler;
-import io.netty.channel.Channel;
-import io.netty.channel.EventLoopGroup;
-import io.netty.channel.ServerChannel;
+import io.netty.channel.*;
+import io.netty.channel.epoll.AbstractEpollStreamChannel;
 import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.epoll.EpollServerSocketChannel;
 import io.netty.channel.epoll.EpollSocketChannel;
@@ -79,10 +78,10 @@ public class OSHelper {
     }
 
     public static PassThroughStrategy nativePassThrough() {
-        /*if (OS.isLinux()) {
+        if (OS.isLinux()) {
             log.info("使用Splice透传策略");
             return new SpliceImpl();
-        }*/
+        }
         log.info("使用默认透传策略");
         return new DefaultImpl();
     }
@@ -104,8 +103,31 @@ public class OSHelper {
 
         @Override
         public void accept(Channel channel1, Channel channel2) {
-            ((EpollSocketChannel) channel1).spliceTo((EpollSocketChannel) channel2, Integer.MAX_VALUE);
-            ((EpollSocketChannel) channel2).spliceTo((EpollSocketChannel) channel1, Integer.MAX_VALUE);
+            EpollSocketChannel ch1 = (EpollSocketChannel) channel1;
+            EpollSocketChannel ch2 = (EpollSocketChannel) channel2;
+            channel1.pipeline().addLast(new LinuxSpliceHandler());
+            channel2.pipeline().addLast(new LinuxSpliceHandler());
+
+            ch1.spliceTo(ch2, Integer.MAX_VALUE).addListener(new ChannelFutureListener() {
+                @Override
+                public void operationComplete(ChannelFuture future) {
+                    if (!future.isSuccess()) {
+                        future.cancel(true);
+                        future.channel().close();
+                    }
+                }
+            });
+            ch2.spliceTo(ch1, Integer.MAX_VALUE).addListener(new ChannelFutureListener() {
+                @Override
+                public void operationComplete(ChannelFuture future) {
+                    if (!future.isSuccess()) {
+                        future.cancel(true);
+                        future.channel().close();
+                    }
+                }
+            });
+            channel1.config().setAutoRead(true);
+            channel2.config().setAutoRead(true);
         }
     }
 

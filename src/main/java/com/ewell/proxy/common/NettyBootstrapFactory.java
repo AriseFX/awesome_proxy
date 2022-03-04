@@ -4,9 +4,13 @@ import com.ewell.proxy.common.os.OSHelper;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.epoll.EpollMode;
+import net.openhft.chronicle.core.OS;
 
 import static io.netty.channel.ChannelOption.SO_BACKLOG;
 import static io.netty.channel.ChannelOption.TCP_NODELAY;
+import static io.netty.channel.epoll.EpollChannelOption.EPOLL_MODE;
+import static io.netty.channel.epoll.EpollMode.LEVEL_TRIGGERED;
 
 /**
  * @Author: wy
@@ -18,13 +22,13 @@ public class NettyBootstrapFactory {
 
     public static ServerBootstrap newServerBootstrap() {
         EventLoopGroup boss = OSHelper.eventLoopGroup(1, "proxy-boss");
-        EventLoopGroup worker = OSHelper.eventLoopGroup(0, "proxy-worker");
+        EventLoopGroup worker = OSHelper.eventLoopGroup(1, "proxy-worker");
         ServerBootstrap b = new ServerBootstrap();
         b.childOption(TCP_NODELAY, true);
         b.option(SO_BACKLOG, 16384);
-        /*if (OS.isLinux()) {
-            b.childOption(EPOLL_MODE, EpollMode.LEVEL_TRIGGERED);
-        }*/
+        if (OS.isLinux()) {
+            b.childOption(EPOLL_MODE, LEVEL_TRIGGERED);
+        }
         b.group(boss, worker);
         b.channel(OSHelper.acceptChannelType());
         return b;
@@ -34,9 +38,9 @@ public class NettyBootstrapFactory {
         Bootstrap b = new Bootstrap();
         b.channel(OSHelper.channelType());
         b.option(TCP_NODELAY, true);
-        /*if (OS.isLinux() ) {
-            b.option(EPOLL_MODE, EpollMode.LEVEL_TRIGGERED);
-        }*/
+        if (OS.isLinux() ) {
+            b.option(EPOLL_MODE, LEVEL_TRIGGERED);
+        }
         return b;
     }
 }
